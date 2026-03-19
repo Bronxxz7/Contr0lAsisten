@@ -934,9 +934,15 @@ function renderDashboard() {
   const practicante = getSelectedPracticante();
   const propios = registros.filter((r) => r.practicante === practicante);
 
+  const diasUnicos = new Set(
+    propios
+      .filter((r) => r.estado !== ESTADOS.FALTA)
+      .map((r) => r.fecha)
+  );
+
   const totalMin = propios.reduce((acc, r) => acc + getMinutosNumericos(r), 0);
 
-  statRegistros.textContent = String(propios.length);
+  statRegistros.textContent = String(diasUnicos.size);
   statHoras.textContent = formatMinutes(totalMin);
   statFaltas.textContent = String(
     propios.filter((r) => r.estado === ESTADOS.FALTA).length
