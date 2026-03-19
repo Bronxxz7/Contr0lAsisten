@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UGEL | Asistencia de practicantes</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  
+  <section class="auth-screen" id="authSection">
+    <div class="auth-background-shape auth-shape-1"></div>
+    <div class="auth-background-shape auth-shape-2"></div>
+
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="auth-logo">B</div>
+        <p class="auth-kicker">Acceso corporativo</p>
+        <h1>Bienvenido</h1>
+        <p class="auth-subtitle">
+          Inicia sesión para acceder al sistema de gestión de asistencia.
+        </p>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <div class="auth-field">
+          <label for="loginEmail">Correo corporativo</label>
+          <input
+            id="loginEmail"
+            type="email"
+            placeholder="nombre@gmail.com"
+            required
+          />
+        </div>
+
+        <div class="auth-field">
+          <label for="loginPassword">Contraseña</label>
+          <input
+            id="loginPassword"
+            type="password"
+            placeholder="Ingresa tu contraseña"
+            required
+          />
+        </div>
+
+        <div class="auth-actions">
+          <button type="submit" class="auth-btn auth-btn-primary">
+            Iniciar sesión
+          </button>
+
+          <button
+            type="button"
+            id="registerRequestBtn"
+            class="auth-btn auth-btn-secondary"
+          >
+            Registrarse
+          </button>
+        </div>
+
+        <div id="loginMessage" class="auth-message hidden"></div>
+      </form>
+
+      <div class="auth-footer">
+        <span>Uso para personal AUTORIZADO</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODAL REGISTRO -->
+  <dialog id="registerDialog" class="auth-dialog">
+    <div class="auth-dialog-content">
+      <div class="auth-dialog-icon">✦</div>
+      <h3>¿Necesitas una cuenta?</h3>
+      <p>
+        Nos encantará ayudarte.
+        <strong>Contáctate con Bronx</strong> para solicitar una cuenta nueva
+        o realizar un pedido de trabajo.
+      </p>
+      <p class="auth-dialog-note">
+        Él te orientará con el acceso adecuado de una manera rápida y amable.
+      </p>
+
+      <div class="auth-dialog-actions">
+        <button
+          type="button"
+          id="closeRegisterDialog"
+          class="auth-btn auth-btn-primary"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- COMIENZO DE PAGINA INTERNA -->
+  <div id="appWrapper" class="hidden">
+    <div class="mobile-topbar">
+      <button id="menuToggle" class="menu-toggle" type="button" aria-label="Abrir menú">
+        ☰
+      </button>
+      <div class="mobile-brand">UGEL · Asistencia</div>
+      <div id="clockMini" class="clock-mini">--:--:--</div>
+    </div>
+
+    <div class="app-shell">
+      <aside id="sidebar" class="sidebar">
+        <div class="brand">
+          <div class="brand-logo">U</div>
+          <div>
+            <h1>UGEL</h1>
+            <p>Control de asistencia</p>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-item active" type="button" data-section="dashboard" aria-current="page">
+            Panel general
+          </button>
+          <button class="nav-item" type="button" data-section="registro">
+            Registro
+          </button>
+          <button class="nav-item" type="button" data-section="historial">
+            Historial
+          </button>
+          <button class="nav-item" type="button" data-section="practicantes">
+            Practicantes
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="mini-label">Practicante actual</div>
+          <div id="sidebarStudent" class="sidebar-name">No seleccionado</div>
+        </div>
+
+        <button id="logoutBtn" class="btn btn-outline" type="button">
+          Cerrar sesión
+        </button>
+      </aside>
+
+      <div id="overlay" class="overlay"></div>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div>
+            <h2 class="page-title">Asistencia de practicantes</h2>
+            <p class="page-subtitle">
+              Aqui llevaras un control de asistencia total
+            </p>
+          </div>
+
+          <div class="topbar-actions">
+            <div class="clock-card">
+              <div id="clockTime" class="clock-time">--:--:--</div>
+              <div id="clockDate" class="clock-date">--</div>
+            </div>
+          </div>
+        </header>
+
+        <section id="dashboard" class="section active">
+          <div class="hero-card fade-in-up">
+            <div>
+              <span class="hero-chip">Registro de Estudiantes</span>
+              <h3>Control UGEL</h3>
+              <p>
+                Selecciona un practicante primero para poder ver todas sus asistencias.
+              </p>
+            </div>
+
+            <div class="hero-form">
+              <label class="field-label" for="studentSelectTop">Practicante</label>
+              <div class="input-row">
+                <select id="studentSelectTop" class="select-input"></select>
+                <button id="nuevoStudentBtn" class="btn btn-primary" type="button">
+                  Añadir    
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <article class="stat-card fade-in-up delay-1">
+              <span class="stat-label">Registros</span>
+              <strong id="statRegistros" class="stat-value">0</strong>
+              <span class="stat-meta">Total del practicante</span>
+            </article>
+
+            <article class="stat-card fade-in-up delay-2">
+              <span class="stat-label">Horas acumuladas</span>
+              <strong id="statHoras" class="stat-value">0.00</strong>
+              <span class="stat-meta">Suma general</span>
+            </article>
+
+            <article class="stat-card fade-in-up delay-3">
+              <span class="stat-label">Faltas</span>
+              <strong id="statFaltas" class="stat-value danger-text">0</strong>
+              <span class="stat-meta">PROHIBIDO FALTAR</span>
+            </article>
+
+            <article class="stat-card fade-in-up delay-4">
+              <span class="stat-label">Regularizaciones</span>
+              <strong id="statRegularizaciones" class="stat-value warning-text">0</strong>
+              <span class="stat-meta">Cambios manuales</span>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <article class="panel-card fade-in-up">
+              <div class="panel-header">
+                <h3>Estado de hoy</h3>
+                <span class="badge badge-info">Actual</span>
+              </div>
+              <div id="estadoHoyBox" class="status-list"></div>
+            </article>
+
+            <article class="panel-card fade-in-up delay-1">
+              <div class="panel-header">
+                <h3>Último movimiento</h3>
+                <span class="badge badge-neutral">Historial</span>
+              </div>
+              <div id="ultimoMovimiento" class="last-movement">
+                No hay movimientos registrados.
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="registro" class="section">
+          <div class="panel-card fade-in-up">
+            <div class="panel-header panel-header-wrap">
+              <h3>Registro y edición</h3>
+              <span class="badge badge-success">Operativo</span>
+            </div>
+
+            <div class="form-grid">
+              <div class="field">
+                <label class="field-label" for="studentSelect">Practicante</label>
+                <select id="studentSelect" class="select-input"></select>
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="fechaInput">Fecha</label>
+                <input id="fechaInput" type="date" />
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="turnoInput">Turno</label>
+                <select id="turnoInput" class="select-input">
+                  <option value="mañana">Mañana</option>
+                  <option value="tarde">Tarde</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="entradaInput">Hora de entrada</label>
+                <input id="entradaInput" type="time" step="1" />
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="salidaInput">Hora de salida</label>
+                <input id="salidaInput" type="time" step="1" />
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="estadoInput">Estado</label>
+                <select id="estadoInput" class="select-input">
+                  <option value="ASISTIO">Asistió</option>
+                  <option value="TARDE">Tarde</option>
+                  <option value="FALTA">Falta</option>
+                  <option value="REGULARIZADO">Regularizado</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="note-box">
+              <label class="field-label" for="observacionInput">
+                Anotación / observación
+              </label>
+              <textarea
+                id="observacionInput"
+                rows="3"
+                placeholder="Escribe una observación si hay un detalle importante."
+              ></textarea>
+            </div>
+
+            <div class="btn-group actions-wrap">
+              <button id="registrarBtn" class="btn btn-success" type="button">
+                Guardar registro
+              </button>
+              <button id="regularizarBtn" class="btn btn-warning" type="button">
+                Regularizar
+              </button>
+              <button id="marcarFaltaBtn" class="btn btn-danger" type="button">
+                Marcar falta
+              </button>
+              <button id="registroMultipleBtn" class="btn btn-secondary" type="button">
+                Registro múltiple
+              </button>
+              <button id="limpiarFormBtn" class="btn btn-outline" type="button">
+                Limpiar formulario
+              </button>
+            </div>
+
+            <div id="alertBox" class="alert hidden"></div>
+          </div>
+        </section>
+
+        <section id="historial" class="section">
+          <div class="panel-card fade-in-up">
+            <div class="panel-header panel-header-wrap">
+              <h3>Historial de asistencia</h3>
+
+              <div class="table-actions">
+                <input
+                  id="buscarInput"
+                  type="text"
+                  class="search-input"
+                  placeholder="Buscar por fecha, estado o nota"
+                />
+              </div>
+            </div>
+
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Practicante</th>
+                    <th>Turno</th>
+                    <th>Entrada</th>
+                    <th>Salida</th>
+                    <th>Horas</th>
+                    <th>Estado</th>
+                    <th>Nota</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="tablaBody">
+                  <tr>
+                    <td colspan="9" class="empty-cell">No hay registros todavía.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="practicantes" class="section">
+          <div class="panel-card fade-in-up">
+            <div class="panel-header panel-header-wrap">
+              <h3>Practicantes actuales</h3>
+              <span class="badge badge-info">Gestión</span>
+            </div>
+
+            <div class="student-toolbar">
+              <button id="nuevoStudentBtn2" class="btn btn-primary" type="button">
+                Agregar practicante
+              </button>
+            </div>
+
+            <div id="studentList" class="student-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="studentDialog" class="modal">
+      <form method="dialog" class="modal-content" id="studentForm">
+        <h3>Nuevo practicante</h3>
+        <label class="field-label" for="nuevoStudentInput">Nombre del practicante</label>
+        <input id="nuevoStudentInput" type="text" placeholder="Nombre completo" />
+        <div class="btn-group modal-actions">
+          <button type="button" id="cancelStudentBtn" class="btn btn-outline">
+            Cancelar
+          </button>
+          <button type="submit" class="btn btn-primary">
+            Guardar
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="noteDialog" class="modal">
+      <div class="modal-content">
+        <h3>Observación</h3>
+        <div id="noteDialogText" class="note-view-box">Sin contenido.</div>
+        <div class="btn-group modal-actions">
+          <button type="button" id="closeNoteBtn" class="btn btn-primary">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="duplicateDialog" class="modal">
+      <div class="modal-content">
+        <h3>👁️ Registro duplicado</h3>
+        <div id="duplicateText" class="note-view-box">
+          Ya está marcada la asistencia con esta fecha.
+        </div>
+        <div class="btn-group modal-actions">
+          <button type="button" id="closeDuplicateBtn" class="btn btn-primary">
+            Entendido
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="bulkDialog" class="modal">
+      <div class="modal-content">
+        <h3>Registro múltiple</h3>
+
+        <div class="form-grid">
+          <div class="field">
+            <label class="field-label" for="bulkFechaInicio">Fecha inicio</label>
+            <input id="bulkFechaInicio" type="date" />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="bulkFechaFin">Fecha fin</label>
+            <input id="bulkFechaFin" type="date" />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="bulkTurno">Turno</label>
+            <select id="bulkTurno" class="select-input">
+              <option value="mañana">Mañana</option>
+              <option value="tarde">Tarde</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="bulkEntrada">Hora de entrada</label>
+            <input id="bulkEntrada" type="time" step="1" />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="bulkSalida">Hora de salida</label>
+            <input id="bulkSalida" type="time" step="1" />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="bulkEstado">Estado</label>
+            <select id="bulkEstado" class="select-input">
+              <option value="ASISTIO">Asistió</option>
+              <option value="TARDE">Tarde</option>
+              <option value="REGULARIZADO">Regularizado</option>
+              <option value="FALTA">Falta</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="note-box">
+          <label class="field-label" for="bulkObservacion">Observación</label>
+          <textarea
+            id="bulkObservacion"
+            rows="3"
+            placeholder="Observación general para todos los días"
+          ></textarea>
+        </div>
+
+        <div class="btn-group modal-actions">
+          <button type="button" id="cancelBulkBtn" class="btn btn-outline">
+            Cancelar
+          </button>
+          <button type="button" id="guardarBulkBtn" class="btn btn-primary">
+            Guardar varios días
+          </button>
+        </div>
+      </div>
+    </dialog>
+  </div>
+
+  <script type="module" src="./firebase-config.js"></script>
+  <script type="module" src="./auth.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
