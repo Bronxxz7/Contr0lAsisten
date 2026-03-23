@@ -1,7 +1,18 @@
 import { logoutUser } from "./auth.js";
-
-const STORAGE_KEY = "ugel_practicantes_asistencia_v2";
-const STUDENTS_KEY = "ugel_practicantes_lista_v2";
+import { db } from "./firebase-config.js";
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  getDocs,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
+  writeBatch
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const ESTADOS = {
   ASISTIO: "ASISTIO",
@@ -18,6 +29,9 @@ let editingId = null;
 let appStarted = false;
 let clockInterval = null;
 let alertTimeout = null;
+let currentPracticante = "";
+let unsubscribePracticantes = null;
+let unsubscribeRegistros = null;
 
 const navItems = document.querySelectorAll(".nav-item");
 const sections = document.querySelectorAll(".section");
@@ -124,13 +138,10 @@ function bindStaticEvents() {
   });
 }
 
-function init() {
+async function init() {
   if (appStarted) return;
   appStarted = true;
 
-  cargarPracticantes();
-  cargarRegistros();
-  renderPracticanteSelects(practicantes[0] || "");
   fechaInput.value = getTodayISO();
   limpiarFormulario(false);
   updateClock();
@@ -139,7 +150,93 @@ function init() {
     clockInterval = setInterval(updateClock, 1000);
   }
 
-  renderAll();
+  await ensureDefaultPracticante();
+  subscribePracticantes();
+  subscribeRegistros();
+}
+
+async function ensureDefaultPracticante() {
+  const snapshot = await getDocs(collection(db, "practicantes"));
+  if (snapshot.empty) {
+    await addDoc(collection(db, "practicantes"), {
+      nombre: DEFAULT_PRACTICANTE,
+      createdAt: serverTimestamp()
+    });
+  }
+}
+
+function subscribePracticantes() {
+  if (unsubscribePracticantes) unsubscribePracticantes();
+
+  const q = query(collection(db, "practicantes"), orderBy("nombre"));
+
+  unsubscribePracticantes = onSnapshot(
+    q,
+    (snapshot) => {
+      practicantes = snapshot.docs.map((d) => ({
+        id: d.id,
+        nombre: d.data().nombre || ""
+      }));
+
+      if (!practicantes.length) {
+        currentPracticante = "";
+      } else if (
+        !currentPracticante ||
+        !practicantes.some((p) => p.nombre === currentPracticante)
+      ) {
+        currentPracticante = practicantes[0].nombre;
+      }
+
+      renderPracticanteSelects(currentPracticante);
+      renderPracticantes();
+      renderDashboard();
+      renderTabla();
+    },
+    (error) => {
+      console.error("Error al escuchar practicantes:", error);
+      mostrarAlerta("Error al cargar practicantes desde Firestore.", "error");
+    }
+  );
+}
+
+function subscribeRegistros() {
+  if (unsubscribeRegistros) unsubscribeRegistros();
+
+  const q = query(collection(db, "registros"), orderBy("createdAt", "desc"));
+
+  unsubscribeRegistros = onSnapshot(
+    q,
+    (snapshot) => {
+      registros = snapshot.docs.map((d) => {
+        const r = d.data();
+        const estado = r?.estado || ESTADOS.ASISTIO;
+        const turno = r?.turno || "mañana";
+        const entrada = r?.entrada || "";
+        const salida = r?.salida || "";
+        const minutos =
+          estado === ESTADOS.FALTA ? "" : calcMinutes(entrada, salida, turno);
+
+        return {
+          id: d.id,
+          practicante: r?.practicante || "",
+          fecha: r?.fecha || "",
+          turno,
+          entrada,
+          salida,
+          horas: minutos,
+          estado,
+          observacion: r?.observacion || "",
+          regularizado: Boolean(r?.regularizado || estado === ESTADOS.REGULARIZADO)
+        };
+      });
+
+      renderAll();
+    },
+    (error) => {
+      console.error("Error al escuchar registros:", error);
+      mostrarAlerta("Error al cargar registros desde Firestore.", "error");
+    }
+  );
 }
 
 function abrirMenu() {
@@ -172,66 +269,7 @@ function activarSeccion(target) {
   cerrarMenu();
 }
 
-function loadFromStorage(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key)) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function saveToStorage(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function guardarPracticantes() {
-  saveToStorage(STUDENTS_KEY, practicantes);
-}
-
-function cargarPracticantes() {
-  practicantes = loadFromStorage(STUDENTS_KEY, [DEFAULT_PRACTICANTE]);
-
-  if (!Array.isArray(practicantes) || !practicantes.length) {
-    practicantes = [DEFAULT_PRACTICANTE];
-  }
-}
-
-function cargarRegistros() {
-  registros = loadFromStorage(STORAGE_KEY, []);
-
-  if (!Array.isArray(registros)) {
-    registros = [];
-  }
-
-  registros = registros.map((r) => {
-    const estado = r?.estado || ESTADOS.ASISTIO;
-    const turno = r?.turno || "mañana";
-    const entrada = r?.entrada || "";
-    const salida = r?.salida || "";
-    const minutos = estado === ESTADOS.FALTA ? "" : calcMinutes(entrada, salida, turno);
-
-    return {
-      id: r?.id ?? `${Date.now()}_${Math.random()}`,
-      practicante: r?.practicante || "",
-      fecha: r?.fecha || "",
-      turno,
-      entrada,
-      salida,
-      horas: minutos,
-      estado,
-      observacion: r?.observacion || "",
-      regularizado: Boolean(r?.regularizado || estado === ESTADOS.REGULARIZADO)
-    };
-  });
-
-  guardarRegistros();
-}
-
-function guardarRegistros() {
-  saveToStorage(STORAGE_KEY, registros);
-}
-
-function onStudentSubmit(e) {
+async function onStudentSubmit(e) {
   e.preventDefault();
 
   const nombre = nuevoStudentInput.value.trim();
@@ -241,34 +279,41 @@ function onStudentSubmit(e) {
     return;
   }
 
-  if (practicantes.includes(nombre)) {
+  if (practicantes.some((p) => p.nombre.toLowerCase() === nombre.toLowerCase())) {
     mostrarAlerta("Ese practicante ya existe.", "error");
     return;
   }
 
-  practicantes.push(nombre);
-  guardarPracticantes();
-  renderPracticanteSelects(nombre);
-  renderPracticantes();
-  renderDashboard();
+  try {
+    await addDoc(collection(db, "practicantes"), {
+      nombre,
+      createdAt: serverTimestamp()
+    });
 
-  mostrarAlerta("Practicante agregado correctamente.", "success");
-  nuevoStudentInput.value = "";
-  studentDialog.close();
+    currentPracticante = nombre;
+    mostrarAlerta("Practicante agregado correctamente.", "success");
+    nuevoStudentInput.value = "";
+    studentDialog.close();
+  } catch (error) {
+    console.error(error);
+    mostrarAlerta("No se pudo guardar el practicante.", "error");
+  }
 }
 
 function renderPracticanteSelects(selected = "") {
   const options = practicantes
-    .map((nombre) => `<option value="${escapeHtml(nombre)}">${escapeHtml(nombre)}</option>`)
+    .map((p) => `<option value="${escapeHtml(p.nombre)}">${escapeHtml(p.nombre)}</option>`)
     .join("");
 
   studentSelect.innerHTML = options;
   studentSelectTop.innerHTML = options;
 
-  const valor = selected || practicantes[0] || "";
-  studentSelect.value = valor;
-  studentSelectTop.value = valor;
-  sidebarStudent.textContent = valor || "No seleccionado";
+  const valor = selected || practicantes[0]?.nombre || "";
+  currentPracticante = valor;
+
+  if (studentSelect) studentSelect.value = valor;
+  if (studentSelectTop) studentSelectTop.value = valor;
+  if (sidebarStudent) sidebarStudent.textContent = valor || "No seleccionado";
 }
 
 function renderPracticantes() {
@@ -278,9 +323,10 @@ function renderPracticantes() {
   }
 
   studentList.innerHTML = practicantes
-    .map((nombre) => {
-      const safeName = escapeQuotes(nombre);
-      const safeHtmlName = escapeHtml(nombre);
+    .map((item) => {
+      const safeName = escapeQuotes(item.nombre);
+      const safeHtmlName = escapeHtml(item.nombre);
+      const safeId = escapeQuotes(item.id);
 
       return `
         <div class="student-item">
@@ -297,7 +343,7 @@ function renderPracticantes() {
             <button
               class="btn btn-danger"
               type="button"
-              onclick="eliminarPracticante('${safeName}')"
+              onclick="eliminarPracticante('${safeId}', '${safeName}')"
               aria-label="Eliminar practicante ${safeHtmlName}"
             >
               Eliminar
@@ -323,6 +369,7 @@ function escapeHtml(text) {
 }
 
 function seleccionarPracticante(nombre) {
+  currentPracticante = nombre;
   studentSelect.value = nombre;
   studentSelectTop.value = nombre;
   sidebarStudent.textContent = nombre;
@@ -330,45 +377,55 @@ function seleccionarPracticante(nombre) {
   mostrarAlerta("Practicante seleccionado.", "success");
 }
 
-function eliminarPracticante(nombre) {
+async function eliminarPracticante(practicanteId, nombre) {
   const confirmar = window.confirm(`¿Eliminar a ${nombre}? También se borrarán sus registros.`);
   if (!confirmar) return;
 
-  practicantes = practicantes.filter((p) => p !== nombre);
-  registros = registros.filter((r) => r.practicante !== nombre);
+  try {
+    const batch = writeBatch(db);
 
-  guardarPracticantes();
-  guardarRegistros();
+    batch.delete(doc(db, "practicantes", practicanteId));
 
-  if (!practicantes.length) {
-    practicantes = [DEFAULT_PRACTICANTE];
-    guardarPracticantes();
+    registros
+      .filter((r) => r.practicante === nombre)
+      .forEach((r) => {
+        batch.delete(doc(db, "registros", r.id));
+      });
+
+    await batch.commit();
+
+    if (currentPracticante === nombre) {
+      currentPracticante = "";
+    }
+
+    editingId = null;
+    limpiarFormulario(false);
+    mostrarAlerta("Practicante eliminado correctamente.", "success");
+  } catch (error) {
+    console.error(error);
+    mostrarAlerta("No se pudo eliminar el practicante.", "error");
   }
-
-  editingId = null;
-  renderPracticanteSelects(practicantes[0]);
-  renderAll();
-
-  mostrarAlerta("Practicante eliminado correctamente.", "success");
 }
 
 window.seleccionarPracticante = seleccionarPracticante;
 window.eliminarPracticante = eliminarPracticante;
 
 function sincronizarPracticante() {
-  studentSelectTop.value = studentSelect.value;
-  sidebarStudent.textContent = studentSelect.value || "No seleccionado";
+  currentPracticante = studentSelect.value || "";
+  studentSelectTop.value = currentPracticante;
+  sidebarStudent.textContent = currentPracticante || "No seleccionado";
   renderAll();
 }
 
 function sincronizarPracticanteDesdeTop() {
-  studentSelect.value = studentSelectTop.value;
-  sidebarStudent.textContent = studentSelectTop.value || "No seleccionado";
+  currentPracticante = studentSelectTop.value || "";
+  studentSelect.value = currentPracticante;
+  sidebarStudent.textContent = currentPracticante || "No seleccionado";
   renderAll();
 }
 
 function getSelectedPracticante() {
-  return studentSelect.value || "";
+  return currentPracticante || studentSelect.value || "";
 }
 
 function getTodayISO() {
@@ -474,7 +531,6 @@ function buildRegistro(payload) {
       : calcMinutes(payload.entrada, payload.salida, payload.turno);
 
   return {
-    id: payload.id ?? `${Date.now()}_${Math.random()}`,
     practicante: payload.practicante,
     fecha: payload.fecha,
     turno: payload.turno,
@@ -487,7 +543,7 @@ function buildRegistro(payload) {
   };
 }
 
-function guardarRegistro() {
+async function guardarRegistro() {
   const practicante = getSelectedPracticante();
 
   if (!practicante) {
@@ -501,7 +557,7 @@ function guardarRegistro() {
   }
 
   if (editingId !== null) {
-    actualizarRegistroExistente();
+    await actualizarRegistroExistente();
     return;
   }
 
@@ -522,14 +578,22 @@ function guardarRegistro() {
     regularizado: estadoInput.value === ESTADOS.REGULARIZADO
   });
 
-  registros.unshift(payload);
-  guardarRegistros();
-  limpiarFormulario(false);
-  mostrarAlerta("Registro guardado correctamente.", "success");
-  renderAll();
+  try {
+    await addDoc(collection(db, "registros"), {
+      ...payload,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    limpiarFormulario(false);
+    mostrarAlerta("Registro guardado correctamente.", "success");
+  } catch (error) {
+    console.error(error);
+    mostrarAlerta("No se pudo guardar el registro.", "error");
+  }
 }
 
-function regularizarRegistro() {
+async function regularizarRegistro() {
   const practicante = getSelectedPracticante();
 
   if (!practicante) {
@@ -543,7 +607,7 @@ function regularizarRegistro() {
   }
 
   if (editingId !== null) {
-    actualizarRegistroExistente(ESTADOS.REGULARIZADO, true);
+    await actualizarRegistroExistente(ESTADOS.REGULARIZADO, true);
     return;
   }
 
@@ -564,14 +628,22 @@ function regularizarRegistro() {
     regularizado: true
   });
 
-  registros.unshift(payload);
-  guardarRegistros();
-  limpiarFormulario(false);
-  mostrarAlerta("Regularización registrada correctamente.", "success");
-  renderAll();
+  try {
+    await addDoc(collection(db, "registros"), {
+      ...payload,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    limpiarFormulario(false);
+    mostrarAlerta("Regularización registrada correctamente.", "success");
+  } catch (error) {
+    console.error(error);
+    mostrarAlerta("No se pudo guardar la regularización.", "error");
+  }
 }
 
-function marcarFalta() {
+async function marcarFalta() {
   const practicante = getSelectedPracticante();
 
   if (!practicante) {
@@ -585,7 +657,7 @@ function marcarFalta() {
   }
 
   if (editingId !== null) {
-    actualizarRegistroExistente(ESTADOS.FALTA);
+    await actualizarRegistroExistente(ESTADOS.FALTA);
     return;
   }
 
@@ -606,14 +678,22 @@ function marcarFalta() {
     regularizado: false
   });
 
-  registros.unshift(payload);
-  guardarRegistros();
-  limpiarFormulario(false);
-  mostrarAlerta("Falta registrada.", "success");
-  renderAll();
+  try {
+    await addDoc(collection(db, "registros"), {
+      ...payload,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    limpiarFormulario(false);
+    mostrarAlerta("Falta registrada.", "success");
+  } catch (error) {
+    console.error(error);
+    mostrarAlerta("No se pudo registrar la falta.", "error");
+  }
 }
 
-function actualizarRegistroExistente(modoEstado = null, forzarRegularizado = false) {
+async function actualizarRegistroExistente(modoEstado = null, forzarRegularizado = false) {
   const index = registros.findIndex((r) => String(r.id) === String(editingId));
 
   if (index === -1) {
@@ -663,26 +743,29 @@ function actualizarRegistroExistente(modoEstado = null, forzarRegularizado = fal
     esRegularizado = forzarRegularizado || nuevoEstado === ESTADOS.REGULARIZADO;
   }
 
-  registros[index] = {
-    ...itemAnterior,
-    practicante,
-    fecha,
-    turno,
-    entrada: nuevaEntrada,
-    salida: nuevaSalida,
-    horas: nuevosMinutos,
-    estado: nuevoEstado,
-    observacion: observacionInput.value || "",
-    regularizado: esRegularizado
-  };
+  try {
+    await updateDoc(doc(db, "registros", editingId), {
+      practicante,
+      fecha,
+      turno,
+      entrada: nuevaEntrada,
+      salida: nuevaSalida,
+      horas: nuevosMinutos,
+      estado: nuevoEstado,
+      observacion: observacionInput.value || "",
+      regularizado: esRegularizado,
+      updatedAt: serverTimestamp()
+    });
 
-  guardarRegistros();
-  limpiarFormulario(false);
-  renderAll();
-  mostrarAlerta("Registro actualizado correctamente.", "success");
+    limpiarFormulario(false);
+    mostrarAlerta("Registro actualizado correctamente.", "success");
+  } catch (error) {
+    console.error(error);
+    mostrarAlerta("No se pudo actualizar el registro.", "error");
+  }
 }
 
-function eliminarRegistro(id) {
+async function eliminarRegistro(id) {
   const item = registros.find((r) => String(r.id) === String(id));
   if (!item) {
     mostrarAlerta("No se encontró el registro.", "error");
@@ -695,15 +778,18 @@ function eliminarRegistro(id) {
 
   if (!confirmar) return;
 
-  registros = registros.filter((r) => String(r.id) !== String(id));
-  guardarRegistros();
+  try {
+    await deleteDoc(doc(db, "registros", id));
 
-  if (editingId !== null && String(editingId) === String(id)) {
-    limpiarFormulario(false);
+    if (editingId !== null && String(editingId) === String(id)) {
+      limpiarFormulario(false);
+    }
+
+    mostrarAlerta("Registro eliminado correctamente.", "success");
+  } catch (error) {
+    console.error(error);
+    mostrarAlerta("No se pudo eliminar el registro.", "error");
   }
-
-  renderAll();
-  mostrarAlerta("Registro eliminado correctamente.", "success");
 }
 
 function limpiarFormulario(resetFecha = true) {
@@ -751,7 +837,7 @@ function getDatesInRange(start, end) {
   return dates;
 }
 
-function guardarRegistroMultiple() {
+async function guardarRegistroMultiple() {
   const practicante = getSelectedPracticante();
 
   if (!practicante) {
@@ -770,6 +856,8 @@ function guardarRegistroMultiple() {
   }
 
   const fechas = getDatesInRange(bulkFechaInicio.value, bulkFechaFin.value);
+  const batch = writeBatch(db);
+
   let creados = 0;
   let omitidos = 0;
 
@@ -792,28 +880,38 @@ function guardarRegistroMultiple() {
       regularizado: bulkEstado.value === ESTADOS.REGULARIZADO
     });
 
-    registros.unshift(payload);
+    const newRef = doc(collection(db, "registros"));
+    batch.set(newRef, {
+      ...payload,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
     creados++;
   }
 
-  guardarRegistros();
-  renderAll();
-  bulkDialog?.close();
-
-  if (creados > 0 && omitidos > 0) {
-    mostrarAlerta(
-      `Se registraron ${creados} días. ${omitidos} ya existían y fueron omitidos.`,
-      "success"
-    );
+  if (creados === 0) {
+    mostrarAlerta("No se registró nada porque todas esas fechas ya existían.", "error");
     return;
   }
 
-  if (creados > 0) {
+  try {
+    await batch.commit();
+    bulkDialog?.close();
+
+    if (omitidos > 0) {
+      mostrarAlerta(
+        `Se registraron ${creados} días. ${omitidos} ya existían y fueron omitidos.`,
+        "success"
+      );
+      return;
+    }
+
     mostrarAlerta(`Se registraron ${creados} días correctamente.`, "success");
-    return;
+  } catch (error) {
+    console.error(error);
+    mostrarAlerta("No se pudieron guardar los registros múltiples.", "error");
   }
-
-  mostrarAlerta("No se registró nada porque todas esas fechas ya existían.", "error");
 }
 
 function getFilteredRecords() {
@@ -902,6 +1000,7 @@ function cargarEnFormulario(id) {
   if (!item) return;
 
   editingId = String(id);
+  currentPracticante = item.practicante;
 
   studentSelect.value = item.practicante;
   studentSelectTop.value = item.practicante;
